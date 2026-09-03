@@ -15,14 +15,20 @@
 <div class="app">
   <header class="app-header">
     <div class="brand">Luc<em>í</em>a</div>
-    <div class="d-flex gap-1 ms-auto" role="group" aria-label="Modo">
+    <div class="d-flex gap-1 ms-auto flex-wrap justify-content-end" role="group" aria-label="Modo">
       <button type="button" class="btn chip" data-cmd="/dialog" aria-pressed="true">diálogo</button>
+      <button type="button" class="btn chip" data-cmd="/palabras_nuevas" aria-pressed="false">palabras nuevas</button>
       <button type="button" class="btn chip" data-cmd="/powtorka" aria-pressed="false">repaso</button>
       <button type="button" class="btn chip" data-cmd="/test" aria-pressed="false">test</button>
     </div>
-    <button type="button" class="btn icon-btn" id="voiceBtn" aria-pressed="true" title="Voz de Lucía" aria-label="Voz de Lucía">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>
-    </button>
+    <div class="header-actions">
+      <button type="button" class="btn icon-btn" id="voiceBtn" aria-pressed="true" title="Voz de Lucía" aria-label="Voz de Lucía">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>
+      </button>
+      <button type="button" class="btn icon-btn" id="logoutBtn" title="Salir" aria-label="Cerrar sesión">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
+      </button>
+    </div>
   </header>
 
   <main class="thread" id="thread" aria-live="polite"></main>
@@ -62,7 +68,8 @@ const input   = document.getElementById("input");
 const heard   = document.getElementById("heard");
 const micBtn  = document.getElementById("micBtn");
 const sendBtn = document.getElementById("sendBtn");
-const voiceBtn= document.getElementById("voiceBtn");
+const voiceBtn  = document.getElementById("voiceBtn");
+const logoutBtn = document.getElementById("logoutBtn");
 const traceEl = document.getElementById("trace");
 
 let voiceOn = true;
@@ -136,6 +143,21 @@ voiceBtn.addEventListener("click", () => {
   voiceBtn.setAttribute("aria-pressed", String(voiceOn));
   if (!voiceOn) speechSynthesis.cancel();
 });
+
+/* ---------- logout (Basic Auth — clears browser credential cache) ---------- */
+function logout(){
+  speechSynthesis.cancel();
+  const { protocol, hostname, port } = location;
+  const host = hostname + (port ? ":" + port : "");
+  const url = protocol + "//" + host + "/";
+  const stamp = Date.now();
+  const xhr = new XMLHttpRequest();
+  xhr.open("GET", url + "?_=" + stamp, true, "logout", String(stamp));
+  xhr.onload = xhr.onerror = () => { location.href = url + "?_=" + stamp; };
+  xhr.send();
+}
+
+logoutBtn.addEventListener("click", logout);
 
 /* ---------- speech in ---------- */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -253,6 +275,10 @@ function mockLucia(text){
   return new Promise(resolve => setTimeout(() => {
     const low = text.toLowerCase();
 
+    if (low.startsWith("/palabras_nuevas")){
+      trace("get_next_words");
+      return resolve({ text:"Palabras nuevas. Sin escena. Mira la tarjeta y repítela en voz alta.", card:MOCK_VOCAB[0] });
+    }
     if (low.startsWith("/powtorka")){
       trace("get_due_words");
       return resolve({ text:"Repaso. Sin escena. Traduce: „poproszę rachunek”.", card:null });
