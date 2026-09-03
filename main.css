@@ -157,6 +157,25 @@ body {
   text-wrap: pretty;
 }
 
+.lucia .replay {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  margin-top: 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  background: transparent;
+}
+
+.lucia .replay:hover,
+.lucia .replay:focus-visible {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+}
+
 .lucia .aside {
   font-family: "Instrument Sans", sans-serif;
   font-size: 14px;

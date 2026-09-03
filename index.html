@@ -83,6 +83,11 @@ function scroll(){ thread.scrollTop = thread.scrollHeight; }
 function addLucia(text, card, aside){
   const node = el(`<div class="turn lucia"><p></p></div>`);
   node.querySelector("p").textContent = text;
+  const play = el(`<button type="button" class="btn replay" aria-label="Escuchar">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>
+  </button>`);
+  play.addEventListener("click", () => speak(text));
+  node.appendChild(play);
   if (aside){ const a = el(`<div class="aside"></div>`); a.textContent = aside; node.appendChild(a); }
   if (card){
     const c = el(`<div class="vocab-card">
