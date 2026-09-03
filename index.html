@@ -22,7 +22,7 @@
       <button type="button" class="btn chip" data-cmd="/test" aria-pressed="false">test</button>
     </div>
     <div class="header-actions">
-      <button type="button" class="btn icon-btn" id="voiceBtn" aria-pressed="true" title="Voz de Lucía" aria-label="Voz de Lucía">
+      <button type="button" class="btn icon-btn" id="voiceBtn" aria-pressed="false" title="Voz de Lucía" aria-label="Voz de Lucía">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>
       </button>
       <button type="button" class="btn icon-btn" id="logoutBtn" title="Salir" aria-label="Cerrar sesión">
@@ -59,7 +59,7 @@ const CONFIG = {
   sessionId: "tomasz",
   sttLang: "es-ES",
   ttsLang: "es-ES",
-  autoSendOnFinal: true,          // speak, stop, message goes out — no polishing
+  autoSendOnFinal: false,          // speak, stop, message goes out — no polishing
   showTrace: false                // dev strip with simulated tool calls
 };
 
@@ -72,7 +72,7 @@ const voiceBtn  = document.getElementById("voiceBtn");
 const logoutBtn = document.getElementById("logoutBtn");
 const traceEl = document.getElementById("trace");
 
-let voiceOn = true;
+let voiceOn = false;
 let busy = false;
 let mode = "/dialog";
 
