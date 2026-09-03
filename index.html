@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="es" data-bs-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#241A2B">
+<title>Lucía</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+<link href="lucia-chat.css" rel="stylesheet">
+</head>
+<body>
+<div class="app">
+  <header class="app-header">
+    <div class="brand">Luc<em>í</em>a</div>
+    <div class="d-flex gap-1 ms-auto" role="group" aria-label="Modo">
+      <button type="button" class="btn chip" data-cmd="/dialog" aria-pressed="true">diálogo</button>
+      <button type="button" class="btn chip" data-cmd="/powtorka" aria-pressed="false">repaso</button>
+      <button type="button" class="btn chip" data-cmd="/test" aria-pressed="false">test</button>
+    </div>
+    <button type="button" class="btn icon-btn" id="voiceBtn" aria-pressed="true" title="Voz de Lucía" aria-label="Voz de Lucía">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>
+    </button>
+  </header>
+
+  <main class="thread" id="thread" aria-live="polite"></main>
+
+  <footer class="app-footer">
+    <div class="heard" id="heard"></div>
+    <div class="composer">
+      <textarea class="form-control" id="input" rows="1" placeholder="Escribe o pulsa el micro" enterkeyhint="send"></textarea>
+      <button type="button" class="btn send" id="sendBtn" aria-label="Enviar">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </button>
+      <button type="button" class="btn mic" id="micBtn" data-state="idle" aria-label="Hablar">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+      </button>
+    </div>
+  </footer>
+
+  <div class="trace" id="trace"></div>
+</div>
+
+<script>
+/* ============================================================
+   CONFIG — set webhookUrl to the n8n Chat Trigger URL to go live.
+   Empty string keeps the app in mock mode.
+   ============================================================ */
+const CONFIG = {
+  webhookUrl: "https://n8n.tjterlecki.pl/webhook/c7a404d2-a07d-4094-a680-554aeb767a0c/chat",
+  sessionId: "tomasz",
+  sttLang: "es-ES",
+  ttsLang: "es-ES",
+  autoSendOnFinal: true,          // speak, stop, message goes out — no polishing
+  showTrace: false                // dev strip with simulated tool calls
+};
+
+const thread  = document.getElementById("thread");
+const input   = document.getElementById("input");
+const heard   = document.getElementById("heard");
+const micBtn  = document.getElementById("micBtn");
+const sendBtn = document.getElementById("sendBtn");
+const voiceBtn= document.getElementById("voiceBtn");
+const traceEl = document.getElementById("trace");
+
+let voiceOn = true;
+let busy = false;
+let mode = "/dialog";
+
+/* ---------- rendering ---------- */
+function el(html){ const d = document.createElement("div"); d.innerHTML = html.trim(); return d.firstElementChild; }
+function scroll(){ thread.scrollTop = thread.scrollHeight; }
+
+function addLucia(text, card, aside){
+  const node = el(`<div class="turn lucia"><p></p></div>`);
+  node.querySelector("p").textContent = text;
+  if (aside){ const a = el(`<div class="aside"></div>`); a.textContent = aside; node.appendChild(a); }
+  if (card){
+    const c = el(`<div class="vocab-card">
+        <div><span class="w"></span><span class="t"></span></div>
+        <div class="m">Skojarzenie: <b></b></div>
+        <div class="ex"></div>
+      </div>`);
+    c.querySelector(".w").textContent  = card.word;
+    c.querySelector(".t").textContent  = card.translation;
+    c.querySelector(".m b").textContent= card.mnemonic;
+    c.querySelector(".ex").textContent = card.example;
+    node.appendChild(c);
+  }
+  thread.appendChild(node); scroll();
+  if (voiceOn) speak(text);
+}
+
+function addMe(text, viaVoice){
+  const node = el(`<div class="turn me"><div class="said"></div><div class="meta"></div></div>`);
+  node.querySelector(".said").textContent = text;
+  node.querySelector(".meta").textContent = viaVoice ? "hablado" : "escrito";
+  thread.appendChild(node); scroll();
+}
+
+function typingOn(){
+  const t = el(`<div class="turn lucia" id="typing"><div class="typing"><i></i><i></i><i></i></div></div>`);
+  thread.appendChild(t); scroll();
+}
+function typingOff(){ document.getElementById("typing")?.remove(); }
+
+function trace(line){
+  if (!CONFIG.showTrace) return;
+  traceEl.classList.add("on");
+  traceEl.textContent = "· " + line;
+}
+
+/* ---------- speech out ---------- */
+let voice = null;
+function pickVoice(){
+  const vs = speechSynthesis.getVoices();
+  voice = vs.find(v => v.lang === CONFIG.ttsLang) || vs.find(v => v.lang.startsWith("es")) || null;
+}
+if ("speechSynthesis" in window){ pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
+
+function speak(text){
+  if (!("speechSynthesis" in window)) return;
+  const clean = text.replace(/\(.*?\)/g, "").trim();     // drop Polish mnemonics in brackets
+  if (!clean) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(clean);
+  u.lang = CONFIG.ttsLang; u.rate = 0.95;
+  if (voice) u.voice = voice;
+  speechSynthesis.speak(u);
+}
+
+voiceBtn.addEventListener("click", () => {
+  voiceOn = !voiceOn;
+  voiceBtn.setAttribute("aria-pressed", String(voiceOn));
+  if (!voiceOn) speechSynthesis.cancel();
+});
+
+/* ---------- speech in ---------- */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recog = null, listening = false;
+
+if (!SR){
+  micBtn.disabled = true;
+  heard.textContent = "Este navegador no reconoce voz. Usa Chrome, o escribe.";
+} else {
+  recog = new SR();
+  recog.lang = CONFIG.sttLang;
+  recog.interimResults = true;
+  recog.continuous = false;
+  recog.maxAlternatives = 1;
+
+  recog.onstart = () => { listening = true; micBtn.dataset.state = "listening"; heard.className = "heard live"; heard.textContent = "…"; };
+  recog.onerror = (e) => { heard.className = "heard"; heard.textContent = e.error === "not-allowed" ? "Sin permiso para el micro." : "No te he oído. Otra vez."; };
+  recog.onend   = () => { listening = false; micBtn.dataset.state = "idle"; };
+
+  recog.onresult = (e) => {
+    let text = "";
+    for (const r of e.results) text += r[0].transcript;
+    heard.textContent = text;
+    const final = e.results[e.results.length - 1].isFinal;
+    if (final){
+      heard.className = "heard"; heard.textContent = "";
+      if (CONFIG.autoSendOnFinal) send(text.trim(), true);
+      else { input.value = text.trim(); input.focus(); }
+    }
+  };
+}
+
+micBtn.addEventListener("click", () => {
+  if (!recog) return;
+  if (listening){ recog.stop(); return; }
+  speechSynthesis.cancel();
+  try { recog.start(); } catch(_) {}
+});
+
+/* ---------- composer ---------- */
+function autosize(){ input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 120) + "px"; }
+input.addEventListener("input", () => { autosize(); sendBtn.classList.toggle("on", input.value.trim().length > 0); });
+input.addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); send(input.value.trim(), false); }
+});
+sendBtn.addEventListener("click", () => send(input.value.trim(), false));
+
+document.querySelectorAll(".chip").forEach(chip => {
+  chip.addEventListener("click", () => {
+    document.querySelectorAll(".chip").forEach(c => c.setAttribute("aria-pressed", String(c === chip)));
+    mode = chip.dataset.cmd;
+    send(mode, false);
+  });
+});
+
+async function send(text, viaVoice){
+  if (!text || busy) return;
+  busy = true;
+  input.value = ""; autosize(); sendBtn.classList.remove("on");
+  addMe(text, viaVoice);
+  typingOn();
+  try {
+    const reply = CONFIG.webhookUrl ? await askLucia(text) : await mockLucia(text);
+    typingOff();
+    addLucia(reply.text, reply.card, reply.aside);
+  } catch (err){
+    typingOff();
+    addLucia("Se ha cortado la conexión. Inténtalo otra vez.", null, String(err.message || err));
+  }
+  busy = false;
+}
+
+/* ---------- live backend (n8n Chat Trigger, responseMode: lastNode) ---------- */
+async function askLucia(text){
+  const res = await fetch(CONFIG.webhookUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "sendMessage", sessionId: CONFIG.sessionId, chatInput: text })
+  });
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  const data = await res.json();
+  return { text: data.output || data.text || JSON.stringify(data) };
+}
+
+/* ============================================================
+   MOCK — stands in for the agent until the webhook is wired.
+   Mirrors the shape of lucia_vocab and the session flow.
+   ============================================================ */
+const MOCK_VOCAB = [
+  { word:"quiero",    translation:"chcę",       mnemonic:"KIERO — kieruję się tam, gdzie chcę",  example:"Quiero un café con leche." },
+  { word:"la cuenta", translation:"rachunek",   mnemonic:"KUENTA — kwota do zapłaty",            example:"La cuenta, por favor." },
+  { word:"otro",      translation:"jeszcze jeden", mnemonic:"OTRO — otwórz jeszcze jedno piwo",  example:"¿Me pones otro, por favor?" }
+];
+
+const MOCK_TURNS = [
+  { text:"Ayer pediste bien en el bar. Hoy, la cuenta. Estás en un café de Madrid. ¿Qué quieres tomar?", card:MOCK_VOCAB[0], tool:"get_last_sessions → get_next_words" },
+  { text:"Muy bien. Ahora quieres pagar. Dímelo en una frase corta.", card:MOCK_VOCAB[1], tool:"mark_word_used(quiero)" },
+  { text:"Eso es. El camarero no te oye. Repítelo más alto y más corto.", card:null, tool:"mark_word_used(la cuenta)" },
+  { text:"Perfecto. ¿Y si quieres uno más antes de pagar? Pídemelo.", card:MOCK_VOCAB[2], tool:"get_next_words" },
+  { text:"Bien. Última: sales del café y te despides del camarero. ¿Qué dices?", card:null, tool:"get_frequent_errors" }
+];
+
+const ACCENTS = { "cafe":"café", "manana":"mañana", "esta":"está", "si":"sí", "mas":"más", "adios":"adiós", "por favor.":"por favor." };
+function mockCorrect(text){
+  let out = text, changed = false;
+  for (const [bad, good] of Object.entries(ACCENTS)){
+    const re = new RegExp("\\b" + bad + "\\b", "gi");
+    if (re.test(out)){ out = out.replace(re, good); changed = true; }
+  }
+  return changed ? out : null;
+}
+
+let mockStep = 0;
+function mockLucia(text){
+  return new Promise(resolve => setTimeout(() => {
+    const low = text.toLowerCase();
+
+    if (low.startsWith("/powtorka")){
+      trace("get_due_words");
+      return resolve({ text:"Repaso. Sin escena. Traduce: „poproszę rachunek”.", card:null });
+    }
+    if (low.startsWith("/test")){
+      trace("get_due_words");
+      return resolve({ text:"Test. Sin pistas. Traduce: „chcę jeszcze jedną kawę”.", card:null });
+    }
+    if (low.startsWith("/dialog")){
+      mockStep = 0;
+    }
+    if (/\b(adiós|adios|hasta luego|pa|koniec|nara)\b/.test(low)){
+      trace("end_session(scene, went_well, pick_up)");
+      return resolve({ text:"Hasta mañana. Hoy has pedido y has pagado sin pararte.", card:null, aside:"Sesión guardada — mañana: los artículos." });
+    }
+
+    const fixed = mockCorrect(text);
+    const turn = MOCK_TURNS[mockStep % MOCK_TURNS.length];
+    mockStep++;
+    trace(turn.tool + (fixed ? " + log_error(akcent)" : ""));
+    const prefix = fixed && fixed !== text ? fixed + " " : "";
+    resolve({ text: prefix + turn.text, card: turn.card });
+  }, 550 + Math.random() * 400));
+}
+
+/* ---------- start ---------- */
+if (CONFIG.showTrace) traceEl.classList.add("on");
+addLucia("Hola. Soy Lucía. Hoy hablamos en un café. ¿Empezamos?", null, CONFIG.webhookUrl ? null : "Modo demo — datos simulados.");
+autosize();
+</script>
+</body>
+</html>
